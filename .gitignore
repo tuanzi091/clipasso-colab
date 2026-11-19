@@ -12,6 +12,7 @@ __pycache__/
 *.lib
 diffvg/build/
 diffvg/thrust/
+diffvg/pydiffvg/build_mode.txt
 
 # 权重与结果（Colab 运行时自动下载/生成）
 *.pth

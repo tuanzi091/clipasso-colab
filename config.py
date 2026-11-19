@@ -158,6 +158,15 @@ def parse_arguments():
         wandb.init(project=args.wandb_project_name, entity=args.wandb_user,
                    config=args, name=args.wandb_name, id=wandb.util.generate_id())
 
+    # diffvg 可能是在没有 CUDA 的机器上编译的，此时必须用 CPU 渲染。
+    build_mode_file = os.path.join(
+        os.path.dirname(os.path.abspath(pydiffvg.__file__)), "build_mode.txt")
+    if args.use_gpu and os.path.isfile(build_mode_file):
+        with open(build_mode_file, "r") as f:
+            if f.read().strip() == "cpu":
+                print("diffvg was built without CUDA; falling back to CPU rendering.")
+                args.use_gpu = 0
+
     if args.use_gpu:
         args.device = torch.device("cuda" if (
             torch.cuda.is_available() and torch.cuda.device_count() > 0) else "cpu")

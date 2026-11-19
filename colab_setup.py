@@ -81,6 +81,9 @@ def build_diffvg():
         rc = run([sys.executable, "setup.py", "build_ext", "--inplace"],
                  cwd=DIFFVG_DIR, env=mode_env)
         if rc == 0 and diffvg_importable():
+            mode_file = os.path.join(DIFFVG_DIR, "pydiffvg", "build_mode.txt")
+            with open(mode_file, "w") as handle:
+                handle.write("cuda" if cuda else "cpu")
             print("\n[diffvg] build succeeded (CUDA=%d)" % cuda, flush=True)
             return True
         print("[diffvg] build failed (CUDA=%d)" % cuda, flush=True)
