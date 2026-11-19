@@ -1,0 +1,24 @@
+# Colab 运行时依赖（torch / torchvision 由 Colab 预装，不要在这里安装）
+# diffvg 编译工具：固定 CMake 3.x，避免 CMake 4 移除 FindCUDA / FindPythonLibs
+cmake==3.31.6
+pybind11==2.13.6
+
+# 运行时
+numpy
+scipy
+scikit-image
+opencv-python
+Pillow
+matplotlib
+pandas
+imageio
+tqdm
+ftfy
+regex
+wandb
+gdown
+
+# pydiffvg 依赖
+svgpathtools
+cssutils
+svgwrite

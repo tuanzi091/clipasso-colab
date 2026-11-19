@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# 编译产物
+*.so
+*.pyd
+*.o
+*.obj
+*.a
+*.lib
+diffvg/build/
+diffvg/thrust/
+
+# 权重与结果（Colab 运行时自动下载/生成）
+*.pth
+*.pt
+results/
+output_sketches/
+output_skteches/
+*.zip
+
+# 系统
+.DS_Store
+Thumbs.db
