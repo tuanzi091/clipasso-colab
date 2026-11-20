@@ -110,6 +110,15 @@ if(APPLE)
 endif()
 
 set_target_properties(diffvg PROPERTIES PREFIX "" OUTPUT_NAME "diffvg")
+# setuptools expects the platform extension suffix (e.g. diffvg.cpython-313-x86_64-linux-gnu.so).
+# CMake would otherwise emit plain diffvg.so and the inplace copy step fails.
+if(Python_SOABI)
+    set_target_properties(diffvg PROPERTIES OUTPUT_NAME "diffvg.${Python_SOABI}")
+endif()
+
+if(DIFFVG_CUDA AND NOT WIN32 AND EXISTS "${CUDA_TOOLKIT_ROOT_DIR}/lib64")
+    set_target_properties(diffvg PROPERTIES BUILD_RPATH "${CUDA_TOOLKIT_ROOT_DIR}/lib64")
+endif()
 
 if(NOT PYTHON_SITE_PACKAGES)
   set(PYTHON_SITE_PACKAGES "${CMAKE_CURRENT_BINARY_DIR}/pydiffvg")
