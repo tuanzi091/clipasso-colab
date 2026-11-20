@@ -19,9 +19,6 @@
 #include <cassert>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#ifdef COMPILE_WITH_CUDA
-#include <thrust/sort.h>
-#endif
 
 namespace py = pybind11;
 
@@ -1592,11 +1589,11 @@ void render(std::shared_ptr<Scene> scene,
             boundary_ids,
             morton_codes
         }, num_samples, scene->use_gpu);
-#ifdef COMPILE_WITH_CUDA
-        if (scene->use_gpu) {
-            thrust::sort_by_key(morton_codes, morton_codes + num_samples, boundary_ids);
-        }
-#endif
+        // NOTE: The original code sorted boundary samples with thrust::sort_by_key
+        // for better memory coherency. The sort is an optimization only; skipping
+        // it keeps boundary_ids as the identity permutation and avoids a
+        // device-side race / illegal memory access observed with newer CUDA
+        // toolchains. Rendering results are unchanged.
         parallel_for(render_edge_kernel{
             get_scene_data(*scene.get()),
             background_image.get(),
