@@ -19,10 +19,13 @@ import urllib.request
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DIFFVG_DIR = os.path.join(ROOT, "diffvg")
 WEIGHTS_PATH = os.path.join(ROOT, "U2Net_", "saved_models", "u2net_enhanced_best.pth")
-# Enhanced 权重无法直接提交到 git（GitHub 单文件上限 100MB），通过本仓库的
-# Release 附件分发：Releases -> weights-v1 -> u2net_enhanced_best.pth
-U2NET_URL = ("https://github.com/tuanzi091/clipasso-colab/releases/download/"
-             "weights-v1/u2net_enhanced_best.pth")
+# Enhanced 权重无法直接提交到 git（GitHub 单文件上限 100MB），因此切成
+# 3 个 <100MB 的分片放在仓库里，下载后拼接并校验 MD5。
+U2NET_PARTS = ["u2net_enhanced_best.part-00",
+               "u2net_enhanced_best.part-01",
+               "u2net_enhanced_best.part-02"]
+U2NET_PARTS_BASE = ("https://raw.githubusercontent.com/tuanzi091/"
+                    "clipasso-colab/main/U2Net_/saved_models/parts/")
 U2NET_BYTES = 219241823
 U2NET_MD5 = "4DEFD8218475618E901F4DCF41FDE3EE"
 
@@ -94,24 +97,32 @@ def download_weights():
         return True
 
     os.makedirs(os.path.dirname(WEIGHTS_PATH), exist_ok=True)
-    tmp_path = WEIGHTS_PATH + ".part"
-    print("[weights] downloading U2Net enhanced weights (~219MB)...", flush=True)
+    tmp_path = WEIGHTS_PATH + ".download"
+    print("[weights] downloading U2Net enhanced weights (~219MB, 3 parts)...",
+          flush=True)
 
-    last = [-1]
-
-    def _progress(blocks, block_size, total):
-        if total <= 0:
-            return
-        pct = min(100, blocks * block_size * 100 // total)
-        if pct >= last[0] + 5 or pct == 100:
-            last[0] = pct
-            print("[weights] %d%%" % pct, flush=True)
-
+    received = 0
+    last_pct = -10
     try:
-        urllib.request.urlretrieve(U2NET_URL, tmp_path, reporthook=_progress)
+        with open(tmp_path, "wb") as out:
+            for name in U2NET_PARTS:
+                print("[weights] part:", name, flush=True)
+                with urllib.request.urlopen(U2NET_PARTS_BASE + name,
+                                            timeout=180) as resp:
+                    while True:
+                        chunk = resp.read(1 << 20)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        received += len(chunk)
+                        pct = min(100, received * 100 // U2NET_BYTES)
+                        if pct >= last_pct + 10:
+                            last_pct = pct
+                            print("[weights] %d%%" % pct, flush=True)
     except Exception as exc:
         print("[weights] download failed:", exc, flush=True)
-        print("[weights] 请确认仓库已发布 Release: weights-v1", flush=True)
+        print("[weights] 请确认仓库中的分片文件存在："
+              "U2Net_/saved_models/parts/", flush=True)
         return False
 
     if not os.path.isfile(tmp_path) or os.path.getsize(tmp_path) != U2NET_BYTES:
