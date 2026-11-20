@@ -40,6 +40,12 @@ endif()
 include_directories(${Python_INCLUDE_DIRS})
 if(DIFFVG_CUDA)
     include_directories(${CUDA_INCLUDE_DIRS})
+    # CUDA 13 moves CCCL headers to include/cccl; keep them visible to the host compiler.
+    foreach(cuda_inc ${CUDA_INCLUDE_DIRS})
+        if(EXISTS "${cuda_inc}/cccl")
+            include_directories("${cuda_inc}/cccl")
+        endif()
+    endforeach()
 endif()
 
 if(NOT MSVC)
