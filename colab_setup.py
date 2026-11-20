@@ -16,32 +16,9 @@ import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DIFFVG_DIR = os.path.join(ROOT, "diffvg")
-THRUST_DIR = os.path.join(DIFFVG_DIR, "thrust")
-THRUST_TAG = "2.2.0"
 WEIGHTS_PATH = os.path.join(ROOT, "U2Net_", "saved_models", "u2net_enhanced_best.pth")
 U2NET_GDRIVE_ID = "1ao1ovG1Qtx4b7EoskHXmi2E9rp5CHLcZ"
 MIN_WEIGHT_BYTES = 100 * 1024 * 1024
-
-
-def ensure_thrust():
-    """CPU 版 diffvg 需要 Thrust 头文件，仓库以 tar.gz 形式内置，首次构建时解压。"""
-    if os.path.isfile(os.path.join(THRUST_DIR, "ThrustConfig.cmake")):
-        return True
-
-    archive = os.path.join(DIFFVG_DIR, "thrust-%s.tar.gz" % THRUST_TAG)
-    if not os.path.isfile(archive):
-        print("[thrust] archive not found:", archive, flush=True)
-        return False
-
-    print("[thrust] extracting %s ..." % archive, flush=True)
-    try:
-        import tarfile
-        with tarfile.open(archive, "r:gz") as tar:
-            tar.extractall(DIFFVG_DIR)
-    except Exception as exc:
-        print("[thrust] extract failed:", exc, flush=True)
-        return False
-    return os.path.isfile(os.path.join(THRUST_DIR, "ThrustConfig.cmake"))
 
 
 def run(cmd, cwd=None, env=None):
@@ -66,9 +43,6 @@ def build_diffvg():
         has_cuda = torch.cuda.is_available()
     except Exception:
         has_cuda = False
-
-    if not ensure_thrust():
-        print("[diffvg] Thrust headers are unavailable; CPU build will fail.", flush=True)
 
     modes = [1, 0] if has_cuda else [0]
     for cuda in modes:

@@ -65,7 +65,6 @@ class Build(build_ext):
                 cmake_args += ['-DDIFFVG_CUDA=1']
             else:
                 cmake_args += ['-DDIFFVG_CUDA=0']
-                cmake_args += ['-DThrust_DIR=' + os.path.join(os.path.abspath(ext.sourcedir), 'thrust')]
 
             env = os.environ.copy()
             env['CXXFLAGS'] = '{} -DVERSION_INFO=\\"{}\\"'.format(env.get('CXXFLAGS', ''),

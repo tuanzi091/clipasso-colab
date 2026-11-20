@@ -29,21 +29,17 @@ option(DIFFVG_CUDA "Build diffvg with GPU code path?" OFF)
 if(DIFFVG_CUDA)
     message(STATUS "Build with CUDA support")
     find_package(CUDA 10 REQUIRED)
-    set(CMAKE_CUDA_STANDARD 14)
+    set(CMAKE_CUDA_STANDARD 17)
     if(NOT WIN32)
-        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++14")
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++17")
     endif()
 else()
     message(STATUS "Build without CUDA support")
-    find_package(Thrust REQUIRED)
 endif()
 
 include_directories(${Python_INCLUDE_DIRS})
 if(DIFFVG_CUDA)
-    link_directories(${CUDA_LIBRARIES})
     include_directories(${CUDA_INCLUDE_DIRS})
-else()
-    include_directories(${THRUST_INCLUDE_DIR})
 endif()
 
 if(NOT MSVC)
@@ -57,10 +53,6 @@ else()
   add_compile_options(/FI"cstdlib")
   # Also define macros directly as a fallback
   add_compile_definitions(MB_LEN_MAX=16 INT_MAX=2147483647 INT_MIN=-2147483648 CHAR_BIT=8 UINT_MAX=4294967295 ULONG_MAX=4294967295 ULLONG_MAX=18446744073709551615 LLONG_MIN=-9223372036854775808LL LLONG_MAX=9223372036854775807LL USHRT_MAX=65535 SHRT_MAX=32767 SHRT_MIN=-32768 LONG_MAX=2147483647L LONG_MIN=-2147483648L SCHAR_MAX=127 SCHAR_MIN=-128 UCHAR_MAX=255 CHAR_MIN=-128 CHAR_MAX=127)
-endif()
-
-if(NOT DIFFVG_CUDA)
-    add_compile_options("-DTHRUST_DEVICE_SYSTEM=THRUST_DEVICE_SYSTEM_CPP")
 endif()
 
 set(SRCS atomic.h
@@ -99,7 +91,13 @@ else()
     add_library(diffvg MODULE ${SRCS})
 endif()
 
-target_link_libraries(diffvg PRIVATE pybind11::module)
+if(DIFFVG_CUDA)
+    # cuda_add_library internally links CUDA libraries with the plain signature,
+    # so this target must also use the plain signature.
+    target_link_libraries(diffvg pybind11::module)
+else()
+    target_link_libraries(diffvg PRIVATE pybind11::module)
+endif()
 
 if(APPLE)
     set_target_properties(diffvg PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")

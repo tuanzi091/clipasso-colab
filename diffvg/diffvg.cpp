@@ -19,8 +19,9 @@
 #include <cassert>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <thrust/execution_policy.h>
+#ifdef COMPILE_WITH_CUDA
 #include <thrust/sort.h>
+#endif
 
 namespace py = pybind11;
 
@@ -1591,12 +1592,11 @@ void render(std::shared_ptr<Scene> scene,
             boundary_ids,
             morton_codes
         }, num_samples, scene->use_gpu);
+#ifdef COMPILE_WITH_CUDA
         if (scene->use_gpu) {
-            thrust::sort_by_key(thrust::device, morton_codes, morton_codes + num_samples, boundary_ids);
-        } else {
-            // Don't need to sort for CPU, we are not using SIMD hardware anyway.
-            // thrust::sort_by_key(thrust::host, morton_codes, morton_codes + num_samples, boundary_ids);
+            thrust::sort_by_key(morton_codes, morton_codes + num_samples, boundary_ids);
         }
+#endif
         parallel_for(render_edge_kernel{
             get_scene_data(*scene.get()),
             background_image.get(),
