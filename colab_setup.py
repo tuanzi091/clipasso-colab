@@ -9,16 +9,22 @@
     python colab_setup.py --all                 # 以上全部
 """
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
 import sys
+import urllib.request
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DIFFVG_DIR = os.path.join(ROOT, "diffvg")
 WEIGHTS_PATH = os.path.join(ROOT, "U2Net_", "saved_models", "u2net_enhanced_best.pth")
-U2NET_GDRIVE_ID = "1ao1ovG1Qtx4b7EoskHXmi2E9rp5CHLcZ"
-MIN_WEIGHT_BYTES = 100 * 1024 * 1024
+# Enhanced 权重无法直接提交到 git（GitHub 单文件上限 100MB），通过本仓库的
+# Release 附件分发：Releases -> weights-v1 -> u2net_enhanced_best.pth
+U2NET_URL = ("https://github.com/tuanzi091/clipasso-colab/releases/download/"
+             "weights-v1/u2net_enhanced_best.pth")
+U2NET_BYTES = 219241823
+U2NET_MD5 = "4DEFD8218475618E901F4DCF41FDE3EE"
 
 
 def run(cmd, cwd=None, env=None):
@@ -68,30 +74,56 @@ def build_diffvg():
     return False
 
 
+def _md5(path):
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest().upper()
+
+
+def weights_ready():
+    return (os.path.isfile(WEIGHTS_PATH)
+            and os.path.getsize(WEIGHTS_PATH) == U2NET_BYTES
+            and _md5(WEIGHTS_PATH) == U2NET_MD5)
+
+
 def download_weights():
-    if os.path.isfile(WEIGHTS_PATH) and os.path.getsize(WEIGHTS_PATH) >= MIN_WEIGHT_BYTES:
+    if weights_ready():
         print("[weights] already exists:", WEIGHTS_PATH, flush=True)
         return True
 
     os.makedirs(os.path.dirname(WEIGHTS_PATH), exist_ok=True)
-    try:
-        import gdown
-    except ImportError:
-        if run([sys.executable, "-m", "pip", "install", "-q", "gdown"]) != 0:
-            return False
-        import gdown
+    tmp_path = WEIGHTS_PATH + ".part"
+    print("[weights] downloading U2Net enhanced weights (~219MB)...", flush=True)
 
-    url = "https://drive.google.com/uc?id=" + U2NET_GDRIVE_ID
-    print("[weights] downloading U2Net weights (~219MB)...", flush=True)
+    last = [-1]
+
+    def _progress(blocks, block_size, total):
+        if total <= 0:
+            return
+        pct = min(100, blocks * block_size * 100 // total)
+        if pct >= last[0] + 5 or pct == 100:
+            last[0] = pct
+            print("[weights] %d%%" % pct, flush=True)
+
     try:
-        gdown.download(url, WEIGHTS_PATH, quiet=False)
+        urllib.request.urlretrieve(U2NET_URL, tmp_path, reporthook=_progress)
     except Exception as exc:
         print("[weights] download failed:", exc, flush=True)
+        print("[weights] 请确认仓库已发布 Release: weights-v1", flush=True)
         return False
 
-    if not os.path.isfile(WEIGHTS_PATH) or os.path.getsize(WEIGHTS_PATH) < MIN_WEIGHT_BYTES:
-        print("[weights] downloaded file is incomplete:", WEIGHTS_PATH, flush=True)
+    if not os.path.isfile(tmp_path) or os.path.getsize(tmp_path) != U2NET_BYTES:
+        size = os.path.getsize(tmp_path) if os.path.isfile(tmp_path) else 0
+        print("[weights] size mismatch: got %d, expected %d" % (size, U2NET_BYTES),
+              flush=True)
         return False
+    if _md5(tmp_path) != U2NET_MD5:
+        print("[weights] MD5 mismatch, file corrupted", flush=True)
+        return False
+
+    os.replace(tmp_path, WEIGHTS_PATH)
     print("[weights] saved to", WEIGHTS_PATH, flush=True)
     return True
 
@@ -135,10 +167,11 @@ def verify():
         print("diffvg: FAILED (run: python colab_setup.py --build-diffvg)", flush=True)
         ok = False
 
-    if os.path.isfile(WEIGHTS_PATH) and os.path.getsize(WEIGHTS_PATH) >= MIN_WEIGHT_BYTES:
+    if weights_ready():
         print("u2net weights: OK", flush=True)
     else:
-        print("u2net weights: MISSING (run: python colab_setup.py --download-weights)", flush=True)
+        print("u2net weights: MISSING or MISMATCHED "
+              "(run: python colab_setup.py --download-weights)", flush=True)
         ok = False
 
     return ok
