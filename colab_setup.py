@@ -103,22 +103,32 @@ def download_weights():
 
     received = 0
     last_pct = -10
+    parts_dir = os.path.join(ROOT, "U2Net_", "saved_models", "parts")
+    local_parts = all(os.path.isfile(os.path.join(parts_dir, n))
+                      for n in U2NET_PARTS)
     try:
         with open(tmp_path, "wb") as out:
-            for name in U2NET_PARTS:
-                print("[weights] part:", name, flush=True)
-                with urllib.request.urlopen(U2NET_PARTS_BASE + name,
-                                            timeout=180) as resp:
-                    while True:
-                        chunk = resp.read(1 << 20)
-                        if not chunk:
-                            break
-                        out.write(chunk)
-                        received += len(chunk)
-                        pct = min(100, received * 100 // U2NET_BYTES)
-                        if pct >= last_pct + 10:
-                            last_pct = pct
-                            print("[weights] %d%%" % pct, flush=True)
+            if local_parts:
+                print("[weights] assembling from local parts:", parts_dir,
+                      flush=True)
+                for name in U2NET_PARTS:
+                    with open(os.path.join(parts_dir, name), "rb") as src:
+                        shutil.copyfileobj(src, out)
+            else:
+                for name in U2NET_PARTS:
+                    print("[weights] part:", name, flush=True)
+                    with urllib.request.urlopen(U2NET_PARTS_BASE + name,
+                                                timeout=180) as resp:
+                        while True:
+                            chunk = resp.read(1 << 20)
+                            if not chunk:
+                                break
+                            out.write(chunk)
+                            received += len(chunk)
+                            pct = min(100, received * 100 // U2NET_BYTES)
+                            if pct >= last_pct + 10:
+                                last_pct = pct
+                                print("[weights] %d%%" % pct, flush=True)
     except Exception as exc:
         print("[weights] download failed:", exc, flush=True)
         print("[weights] 请确认仓库中的分片文件存在："
