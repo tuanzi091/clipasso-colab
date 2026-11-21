@@ -69,6 +69,21 @@ def parse_arguments():
     parser.add_argument("--control_points_per_seg", type=int, default=4)
     parser.add_argument("--num_segments", type=int, default=1,
                         help="number of segments for each stroke, each stroke is a bezier curve with 4 control points")
+    # 曲线类型：决定笔触的初始化几何与分段方式
+    # line/quadratic_bezier/cubic_bezier 直接对应 2/3/4 个控制点的贝塞尔段；
+    # arc 用圆弧的三次贝塞尔精确逼近；bspline/catmull_rom 由随机控制多边形转换而来；
+    # variable_width 使用三次贝塞尔 + 逐笔触线宽/透明度随机化。
+    parser.add_argument("--curve_type", type=str, default="cubic_bezier",
+                        choices=["line", "quadratic_bezier", "cubic_bezier",
+                                 "arc", "bspline", "catmull_rom", "variable_width"],
+                        help="stroke curve parameterization")
+    parser.add_argument("--curve_num_segments", type=int, default=3,
+                        help="number of segments used by arc/bspline/catmull_rom strokes")
+    # 逐笔触线宽与透明度范围（<=0 表示关闭，使用 --width 和全不透明）
+    parser.add_argument("--stroke_width_min", type=float, default=-1.0)
+    parser.add_argument("--stroke_width_max", type=float, default=-1.0)
+    parser.add_argument("--opacity_min", type=float, default=1.0)
+    parser.add_argument("--opacity_max", type=float, default=1.0)
     parser.add_argument("--attention_init", type=int, default=1,
                         help="if True, use the attention heads of Dino model to set the location of the initial strokes")
     parser.add_argument("--saliency_model", type=str, default="clip")

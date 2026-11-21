@@ -1,3 +1,4 @@
+import math
 import random
 import CLIP_.clip as clip
 import numpy as np
@@ -28,6 +29,16 @@ class Painter(torch.nn.Module):
         self.num_segments = num_segments
         self.width = args.width
         self.control_points_per_seg = args.control_points_per_seg
+        # 自适应曲线类型与绘画风格参数
+        self.curve_type = getattr(args, "curve_type", "cubic_bezier")
+        self.curve_num_segments = max(1, int(getattr(args, "curve_num_segments", 3)))
+        self.stroke_width_range = None
+        width_min = getattr(args, "stroke_width_min", -1.0)
+        width_max = getattr(args, "stroke_width_max", -1.0)
+        if width_min > 0 and width_max >= width_min:
+            self.stroke_width_range = (width_min, width_max)
+        self.opacity_range = (getattr(args, "opacity_min", 1.0),
+                              getattr(args, "opacity_max", 1.0))
         self.opacity_optim = args.force_sparse
         self.num_stages = args.num_stages
         self.add_random_noise = "noise" in args.augemntations
@@ -71,7 +82,7 @@ class Painter(torch.nn.Module):
             # don't optimize on previous strokes
             self.optimize_flag = [False for i in range(len(self.shapes))]
             for i in range(self.strokes_per_stage):
-                stroke_color = torch.tensor([0.0, 0.0, 0.0, 1.0])
+                stroke_color = self._sample_stroke_color()
                 path = self.get_path()
                 self.shapes.append(path)
                 path_group = pydiffvg.ShapeGroup(shape_ids = torch.tensor([len(self.shapes) - 1]),
@@ -88,7 +99,7 @@ class Painter(torch.nn.Module):
                 num_paths_exists = len(self.shapes)
 
             for i in range(num_paths_exists, self.num_paths):
-                stroke_color = torch.tensor([0.0, 0.0, 0.0, 1.0])
+                stroke_color = self._sample_stroke_color()
                 path = self.get_path()
                 self.shapes.append(path)
                 path_group = pydiffvg.ShapeGroup(shape_ids = torch.tensor([len(self.shapes) - 1]),
@@ -116,10 +127,135 @@ class Painter(torch.nn.Module):
         img = img.permute(0, 3, 1, 2).to(self.device) # NHWC -> NCHW
         return img
 
+    def _sample_stroke_color(self):
+        lo, hi = self.opacity_range
+        if hi < lo:
+            lo, hi = hi, lo
+        alpha = random.uniform(lo, hi)
+        return torch.tensor([0.0, 0.0, 0.0, float(alpha)])
+
+    def _sample_stroke_width(self):
+        if self.stroke_width_range is not None:
+            return random.uniform(*self.stroke_width_range)
+        return float(self.width)
+
+    @staticmethod
+    def _catmull_rom_to_bezier(polygon):
+        """Catmull-Rom 插值：由控制多边形得到 (起点, [(c1, c2, 终点), ...])。"""
+        ext = [polygon[0]] + list(polygon) + [polygon[-1]]
+        segments = []
+        for i in range(1, len(ext) - 2):
+            p0, p1, p2, p3 = ext[i - 1], ext[i], ext[i + 1], ext[i + 2]
+            c1 = (p1[0] + (p2[0] - p0[0]) / 6.0,
+                  p1[1] + (p2[1] - p0[1]) / 6.0)
+            c2 = (p2[0] - (p3[0] - p1[0]) / 6.0,
+                  p2[1] - (p3[1] - p1[1]) / 6.0)
+            segments.append((c1, c2, p2))
+        return polygon[0], segments
+
+    @staticmethod
+    def _bspline_to_bezier(polygon):
+        """均匀三次 B 样条：由控制多边形得到 (起点, [(c1, c2, 终点), ...])。"""
+        ext = [polygon[0]] + list(polygon) + [polygon[-1]]
+        segments = []
+        for i in range(1, len(ext) - 2):
+            p0, p1, p2, p3 = ext[i - 1], ext[i], ext[i + 1], ext[i + 2]
+            b0 = ((p0[0] + 4 * p1[0] + p2[0]) / 6.0,
+                  (p0[1] + 4 * p1[1] + p2[1]) / 6.0)
+            c1 = ((2 * p1[0] + p2[0]) / 3.0, (2 * p1[1] + p2[1]) / 3.0)
+            c2 = ((p1[0] + 2 * p2[0]) / 3.0, (p1[1] + 2 * p2[1]) / 3.0)
+            b3 = ((p1[0] + 4 * p2[0] + p3[0]) / 6.0,
+                  (p1[1] + 4 * p2[1] + p3[1]) / 6.0)
+            if i == 1:
+                segments.append((b0, c1, c2, b3))
+            else:
+                segments.append((c1, c2, b3))
+        if not segments:
+            return polygon[0], []
+        start, first = segments[0][0], segments[0]
+        result = [(first[1], first[2], first[3])]
+        result.extend(segments[1:])
+        return start, result
+
+    @staticmethod
+    def _arc_to_bezier(center, radius, start_angle, span, num_segments):
+        """圆弧的三次贝塞尔精确逼近，返回 (起点, [(c1, c2, 终点), ...])。"""
+        delta = span / num_segments
+        handle = 4.0 / 3.0 * math.tan(delta / 4.0) * radius
+        segments = []
+        for k in range(num_segments):
+            a = start_angle + k * delta
+            b = a + delta
+            cos_a, sin_a = math.cos(a), math.sin(a)
+            cos_b, sin_b = math.cos(b), math.sin(b)
+            p0 = (center[0] + radius * cos_a, center[1] + radius * sin_a)
+            p3 = (center[0] + radius * cos_b, center[1] + radius * sin_b)
+            c1 = (p0[0] - handle * sin_a, p0[1] + handle * cos_a)
+            c2 = (p3[0] + handle * sin_b, p3[1] - handle * cos_b)
+            segments.append((p0, c1, c2, p3))
+        start = segments[0][0]
+        return start, [(s[1], s[2], s[3]) for s in segments]
+
+    def _random_polygon(self, p0, num_points, radius=0.06):
+        polygon = [p0]
+        cur = p0
+        for _ in range(num_points - 1):
+            nxt = (min(1.0, max(0.0, cur[0] + radius * (random.random() - 0.5))),
+                   min(1.0, max(0.0, cur[1] + radius * (random.random() - 0.5))))
+            polygon.append(nxt)
+            cur = nxt
+        return polygon
+
+    def _curve_path(self, p0):
+        """按 curve_type 生成笔触；返回 (points, num_segments, control_points_per_seg)。"""
+        if self.curve_type == "arc":
+            radius = random.uniform(0.05, 0.12)
+            start_angle = random.uniform(0, 2 * math.pi)
+            span = random.uniform(math.pi * 2 / 3, math.pi * 1.1)
+            center = (p0[0] - radius * math.cos(start_angle),
+                      p0[1] - radius * math.sin(start_angle))
+            start, segments = self._arc_to_bezier(
+                center, radius, start_angle, span, self.curve_num_segments)
+            points = [start]
+            for c1, c2, end in segments:
+                points.extend([c1, c2, end])
+        else:
+            polygon = self._random_polygon(p0, self.curve_num_segments + 1)
+            if self.curve_type == "catmull_rom":
+                start, segments = self._catmull_rom_to_bezier(polygon)
+            else:  # bspline
+                start, segments = self._bspline_to_bezier(polygon)
+            if not segments:
+                return None
+            points = [start]
+            for c1, c2, end in segments:
+                points.extend([c1, c2, end])
+
+        points = [(min(1.0, max(0.0, x)), min(1.0, max(0.0, y))) for x, y in points]
+        return points, len(segments), 4
+
     def get_path(self):
+        p0 = self.inds_normalised[self.strokes_counter] if self.attention_init else (random.random(), random.random())
+
+        if self.curve_type in ("arc", "bspline", "catmull_rom"):
+            curve = self._curve_path(p0)
+            if curve is not None:
+                curve_points, curve_segments, curve_cps = curve
+                points = torch.tensor(curve_points).to(self.device)
+                points[:, 0] *= self.canvas_width
+                points[:, 1] *= self.canvas_height
+                num_control_points = torch.zeros(curve_segments, dtype=torch.int32) + (curve_cps - 2)
+                path = pydiffvg.Path(num_control_points=num_control_points,
+                                     points=points,
+                                     stroke_width=torch.tensor(self._sample_stroke_width()),
+                                     is_closed=False)
+                self.strokes_counter += 1
+                return path
+
+        # line / quadratic_bezier / cubic_bezier / variable_width：
+        # 控制点数量直接决定曲线阶数（2=线段，3=二次，4=三次）
         points = []
         self.num_control_points = torch.zeros(self.num_segments, dtype = torch.int32) + (self.control_points_per_seg - 2)
-        p0 = self.inds_normalised[self.strokes_counter] if self.attention_init else (random.random(), random.random())
         points.append(p0)
 
         for j in range(self.num_segments):
@@ -134,7 +270,7 @@ class Painter(torch.nn.Module):
         
         path = pydiffvg.Path(num_control_points = self.num_control_points,
                                 points = points,
-                                stroke_width = torch.tensor(self.width),
+                                stroke_width = torch.tensor(self._sample_stroke_width()),
                                 is_closed = False)
         self.strokes_counter += 1
         return path

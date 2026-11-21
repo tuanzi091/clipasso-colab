@@ -966,6 +966,7 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
         print(f"\n[Step 6] Using fixed stroke count: {num_paths}")
         curve_type = 'cubic_bezier'
         control_points_per_seg = 4
+        style_params = None
     
     # 保存mask
     mask_path = os.path.join(output_dir, "mask.png")
@@ -1005,8 +1006,19 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
         '--image_scale', str(target_scale),  # 使用计算的图像尺寸
         '--external_mask', mask_path,     # 使用外部mask
         '--mask_object_attention', '1',   # 将mask应用到注意力图，确保特征点只落在前景区域
-        '--control_points_per_seg', str(control_points_per_seg)  # 控制点数量（曲线类型）
+        '--control_points_per_seg', str(control_points_per_seg),  # 控制点数量（曲线阶数）
+        '--curve_type', str(curve_type)   # 曲线类型：真正决定笔触初始化几何
     ]
+    # 绘画风格落地：逐笔触采样线宽与透明度
+    if style_params is not None:
+        width_range = style_params['stroke_width_range']
+        opacity_range = style_params['opacity_range']
+        cmd.extend([
+            '--stroke_width_min', str(width_range[0]),
+            '--stroke_width_max', str(width_range[1]),
+            '--opacity_min', str(opacity_range[0]),
+            '--opacity_max', str(opacity_range[1]),
+        ])
     
     env = os.environ.copy()
     env['PYTHONPATH'] = os.path.join(REPO_ROOT, 'diffvg')
