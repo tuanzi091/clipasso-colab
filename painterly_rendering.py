@@ -110,6 +110,8 @@ def train_stage(args, renderer, loss_func, optimizer, start_epoch, num_iter, ada
         losses_dict = loss_func(sketches, inputs.detach(
         ), renderer.get_color_parameters(), renderer, counter, optimizer, mask=mask)
         loss = sum(list(losses_dict.values()))
+        if getattr(args, "mask_penalty", 0.0) > 0 and mask is not None:
+            loss = loss + args.mask_penalty * renderer.mask_penalty()
         loss.backward()
         optimizer.step_()
 

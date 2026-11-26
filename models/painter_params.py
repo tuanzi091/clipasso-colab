@@ -71,6 +71,22 @@ class Painter(torch.nn.Module):
         self.saliency_clip_model = args.saliency_clip_model
         self.define_attention_input(target_im)
         self.mask = mask
+        # 掩码张量（用于笔触越界惩罚）
+        self.mask_tensor = None
+        if mask is not None:
+            try:
+                mt = mask if torch.is_tensor(mask) else torch.from_numpy(np.asarray(mask, dtype=np.float32))
+                mt = mt.detach().float()
+                if mt.dim() == 4:
+                    mt = mt[0, 0]
+                elif mt.dim() == 3:
+                    mt = mt[0]
+                if mt.dim() == 2:
+                    if float(mt.max()) > 1.5:
+                        mt = mt / 255.0
+                    self.mask_tensor = mt.to(self.device)
+            except Exception:
+                self.mask_tensor = None
         self.attention_map = self.set_attention_map() if self.attention_init else None
         
         self.thresh = self.set_attention_threshold_map() if self.attention_init else None
@@ -466,6 +482,21 @@ class Painter(torch.nn.Module):
         return attn_map_soft
 
 
+
+    def mask_penalty(self):
+        """笔触越界惩罚：统计落在 mask 外的控制点比例，用于迫使笔触集中在前景。"""
+        if self.mask_tensor is None or not self.points_vars:
+            return torch.zeros((), device=self.device)
+        m = self.mask_tensor
+        h, w = m.shape
+        total = torch.zeros((), device=self.device)
+        for p in self.points_vars:
+            if p is None or p.numel() == 0:
+                continue
+            xs = (p[:, 0].clamp(0.0, 1.0) * (w - 1)).long()
+            ys = (p[:, 1].clamp(0.0, 1.0) * (h - 1)).long()
+            total = total + (1.0 - m[ys, xs]).mean()
+        return total / max(len(self.points_vars), 1)
 
     def _face_weight_map(self, shape):
         """构建面部加权图：五官区域权重放大（1+strength），其余区域保持 1。

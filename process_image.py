@@ -841,7 +841,7 @@ def refine_foreground_mask(mask, dilate_iters=2):
     return binary.astype(np.float32), True
 
 
-def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_interval=50, use_gpu=False, crop_square=False, dynamic_strokes=True, dynamic_curve=True, curve_type=None, drawing_style=None, face_focus=0.0, image_scale=None, stroke_width=None):
+def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_interval=50, use_gpu=False, crop_square=False, dynamic_strokes=True, dynamic_curve=True, curve_type=None, drawing_style=None, face_focus=0.0, image_scale=None, stroke_width=None, mask_penalty=0.0):
     """
     按固定流程处理图像（默认启用动态自动选择）
     
@@ -1062,6 +1062,9 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
     # 固定线宽（用于更细致的刻画）
     if stroke_width and stroke_width > 0:
         cmd.extend(['--width', str(stroke_width)])
+    # 笔触越界惩罚
+    if mask_penalty and mask_penalty > 0:
+        cmd.extend(['--mask_penalty', str(mask_penalty)])
     # 绘画风格落地：逐笔触采样线宽与透明度
     if style_params is not None:
         opacity_range = style_params['opacity_range']
@@ -1170,6 +1173,9 @@ def main():
                         help='画布/输入尺寸（默认224）。提到 320/384 可获得更细致的刻画，速度按平方变慢')
     parser.add_argument('--stroke_width', type=float, default=None,
                         help='固定线宽（默认走风格自适应）。小于1.0 可画出更细的线条')
+    parser.add_argument('--mask_penalty', type=float, default=0.0,
+                        help='笔触越界惩罚系数（默认0关闭）。>0 时惩罚落在 mask 外的笔触，'
+                             '推荐 5~20，可显著减少背景笔触')
     
     args = parser.parse_args()
     
@@ -1193,7 +1199,8 @@ def main():
         drawing_style=args.style,
         face_focus=args.face_focus,
         image_scale=args.image_scale,
-        stroke_width=args.stroke_width
+        stroke_width=args.stroke_width,
+        mask_penalty=args.mask_penalty
     )
     
     sys.exit(0 if success else 1)
