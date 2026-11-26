@@ -718,7 +718,7 @@ def smart_crop_and_zoom(image, key_region, target_size=224):
     return resized, crop_info
 
 
-def process_small_image_smart(image_path, output_dir, target_size=224):
+def process_small_image_smart(image_path, output_dir, target_size=224, force=False):
     """
     处理小尺寸图像：智能检测关键部位，放大裁剪到目标尺寸
     
@@ -726,6 +726,7 @@ def process_small_image_smart(image_path, output_dir, target_size=224):
         image_path: 输入图像路径
         output_dir: 输出目录
         target_size: 目标尺寸（默认224）
+        force: 是否强制裁剪（不管原图尺寸）
     
     返回：
         processed_image: 处理后的 PIL Image
@@ -741,12 +742,15 @@ def process_small_image_smart(image_path, output_dir, target_size=224):
     
     width, height = image.size
     
-    # 检查是否需要智能裁剪
-    if width >= target_size and height >= target_size:
+    # 检查是否需要智能裁剪（force=True 时跳过此检查）
+    if not force and width >= target_size and height >= target_size:
         print(f"[Smart Crop] 图像尺寸 {width}x{height} 足够，无需智能裁剪")
         return image, False
     
-    print(f"\n[Smart Crop] 图像尺寸 {width}x{height} 小于目标尺寸 {target_size}")
+    if force:
+        print(f"\n[Smart Crop] 强制模式：即使 {width}x{height} >= {target_size}，仍执行智能裁剪")
+    else:
+        print(f"\n[Smart Crop] 图像尺寸 {width}x{height} 小于目标尺寸 {target_size}")
     print("[Smart Crop] 启动智能关键部位检测...")
     
     # 转换为数组进行检测
@@ -977,8 +981,8 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
         temp_original_path = os.path.join(output_dir, "original_before_smart_crop.png")
         target.save(temp_original_path)
         
-        # 执行智能裁剪
-        processed_image, was_cropped = process_small_image_smart(temp_original_path, output_dir, target_scale)
+        # 执行智能裁剪（把 force 传进去）
+        processed_image, was_cropped = process_small_image_smart(temp_original_path, output_dir, target_scale, force=force_smart_crop)
         
         if was_cropped:
             # 使用智能裁剪后的图像继续处理
