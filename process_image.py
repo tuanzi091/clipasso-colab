@@ -359,7 +359,8 @@ def select_drawing_style(complexity):
     elif complexity < 0.65:
         style = 'brush'
     elif complexity < 0.75:
-        style = 'watercolor'
+        # 水彩效果不佳，暂时从自动选择中移除（仍可用 --style watercolor 手动指定）
+        style = 'brush'
     elif complexity < 0.85:
         style = 'crayon'
     else:
