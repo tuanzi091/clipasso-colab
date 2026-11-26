@@ -1,4 +1,5 @@
 import math
+import os
 import random
 import CLIP_.clip as clip
 import numpy as np
@@ -63,6 +64,8 @@ class Painter(torch.nn.Module):
         self.saliency_model = args.saliency_model
         self.xdog_intersec = args.xdog_intersec
         self.mask_object = args.mask_object_attention
+        # 面部加权：提高五官区域的笔触初始化概率
+        self.face_emphasis = float(getattr(args, "face_emphasis", 0.0))
         
         self.text_target = args.text_target # for clip gradients
         self.saliency_clip_model = args.saliency_clip_model
@@ -437,6 +440,12 @@ class Painter(torch.nn.Module):
                 # 将背景区域的注意力设为0
                 attn_map = attn_map * mask_np
         
+        # 面部加权：五官区域注意力放大，头发/背景保持原样
+        if self.face_emphasis > 0:
+            face_weight = self._face_weight_map(attn_map.shape)
+            if face_weight is not None:
+                attn_map = attn_map * face_weight
+
         attn_map_soft = np.copy(attn_map)
         # 只对非零区域应用 softmax
         non_zero_mask = attn_map > 0
@@ -457,6 +466,64 @@ class Painter(torch.nn.Module):
         return attn_map_soft
 
 
+
+    def _face_weight_map(self, shape):
+        """构建面部加权图：五官区域权重放大（1+strength），其余区域保持 1。
+
+        优先用 OpenCV Haar 检测人脸；检测失败时退化为前景掩码上半部分的椭圆区域。
+        返回 None 表示不启用面部加权。
+        """
+        h, w = int(shape[0]), int(shape[1])
+        strength = float(getattr(self, "face_emphasis", 0.0))
+        if strength <= 0:
+            return None
+
+        box = None
+        try:
+            import cv2
+            img = cv2.imread(self.target_path, cv2.IMREAD_COLOR)
+            if img is not None:
+                oh, ow = img.shape[:2]
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                cascade = os.path.join(cv2.data.haarcascades,
+                                       "haarcascade_frontalface_default.xml")
+                detector = cv2.CascadeClassifier(cascade)
+                min_side = max(24, int(min(oh, ow) * 0.12))
+                faces = detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5,
+                                                  minSize=(min_side, min_side))
+                if len(faces) > 0:
+                    fx, fy, fw, fh = max(faces, key=lambda r: int(r[2]) * int(r[3]))
+                    box = (fx * w / ow, fy * h / oh, fw * w / ow, fh * h / oh)
+        except Exception:
+            box = None
+
+        if box is not None:
+            x, y, fw, fh = box
+            cx, cy = x + fw / 2.0, y + fh / 2.0 + fh * 0.05
+            ax, ay = fw * 0.62, fh * 0.72
+        else:
+            # 退化策略：默认取前景掩码上半部分的中心区域（人像构图常识）
+            cx, cy, ax, ay = w * 0.5, h * 0.36, w * 0.26, h * 0.28
+            if self.mask is not None:
+                try:
+                    m = self.mask.cpu().numpy() if hasattr(self.mask, "cpu") else np.asarray(self.mask)
+                    m = np.squeeze(m)
+                    if m.ndim == 2 and m.shape[0] > 1 and m.shape[1] > 1:
+                        ys, xs = np.where(m > 0.5)
+                        if len(xs) > 0:
+                            x0, x1, y0, y1 = xs.min(), xs.max(), ys.min(), ys.max()
+                            mh, mw = m.shape
+                            cx = (x0 + x1) / 2.0 * w / mw
+                            cy = (y0 + (y1 - y0) * 0.35) * h / mh
+                            ax = (x1 - x0) * 0.42 * w / mw
+                            ay = (y1 - y0) * 0.30 * h / mh
+                except Exception:
+                    pass
+
+        yy, xx = np.mgrid[0:h, 0:w]
+        ell = (((xx - cx) / max(ax, 1.0)) ** 2 + ((yy - cy) / max(ay, 1.0)) ** 2)
+        face_region = np.exp(-2.0 * ell).astype(np.float32)
+        return (1.0 + strength * face_region).astype(np.float32)
 
     def set_inds_dino(self):
         k = max(3, (self.num_stages * self.num_paths) // 6 + 1) # sample top 3 three points from each attention head

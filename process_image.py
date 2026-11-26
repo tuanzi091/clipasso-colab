@@ -810,7 +810,7 @@ def extract_foreground(image_path, output_dir):
     return masked_im, mask
 
 
-def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_interval=50, use_gpu=False, crop_square=False, dynamic_strokes=True, dynamic_curve=True, curve_type=None, drawing_style=None):
+def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_interval=50, use_gpu=False, crop_square=False, dynamic_strokes=True, dynamic_curve=True, curve_type=None, drawing_style=None, face_focus=0.0):
     """
     按固定流程处理图像（默认启用动态自动选择）
     
@@ -1010,6 +1010,9 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
         '--control_points_per_seg', str(control_points_per_seg),  # 控制点数量（曲线阶数）
         '--curve_type', str(curve_type)   # 曲线类型：真正决定笔触初始化几何
     ]
+    # 面部加权：提高五官区域的笔触占比
+    if face_focus and face_focus > 0:
+        cmd.extend(['--face_emphasis', str(face_focus)])
     # 绘画风格落地：逐笔触采样线宽与透明度
     if style_params is not None:
         width_range = style_params['stroke_width_range']
@@ -1108,6 +1111,9 @@ def main():
                              '  watercolor - 水彩（透明柔和，色彩叠加）\n'
                              '  crayon - 蜡笔（粗粝质感，色彩浓厚）\n'
                              '  woodcut - 木刻（强烈对比，黑白高对比）')
+    parser.add_argument('--face_focus', type=float, default=0.0,
+                        help='面部加权强度（默认0=关闭）。>0 时提高五官区域的笔触初始化权重，'
+                             '减少头发/背景的笔触，人像推荐 1.0~2.0')
     
     args = parser.parse_args()
     
@@ -1128,7 +1134,8 @@ def main():
         dynamic_strokes=not args.no_dynamic_strokes,
         dynamic_curve=not args.no_dynamic_curve,
         curve_type=args.curve_type,
-        drawing_style=args.style
+        drawing_style=args.style,
+        face_focus=args.face_focus
     )
     
     sys.exit(0 if success else 1)

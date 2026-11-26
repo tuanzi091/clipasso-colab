@@ -90,6 +90,8 @@ def parse_arguments():
     parser.add_argument("--saliency_clip_model", type=str, default="ViT-B/32")
     parser.add_argument("--xdog_intersec", type=int, default=1)
     parser.add_argument("--mask_object_attention", type=int, default=0)
+    parser.add_argument("--face_emphasis", type=float, default=0.0,
+                        help="面部加权强度（>0 时提高五官区域注意力权重，减少头发/背景笔触）")
     parser.add_argument("--external_mask", type=str, default="", help="path to external mask file")
     parser.add_argument("--softmax_temp", type=float, default=0.3)
 
