@@ -825,6 +825,24 @@ def _mask_to_2d(mask):
     return m
 
 
+def _detect_face_bbox(image):
+    """用 OpenCV Haar 检测最大人脸，返回 (x, y, w, h, W, H) 或 None。"""
+    try:
+        import cv2
+        img = np.array(image.convert("RGB")) if hasattr(image, "convert") else np.asarray(image)
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        cascade = cv2.CascadeClassifier(path)
+        faces = cascade.detectMultiScale(gray, 1.1, 5, minSize=(40, 40))
+        if len(faces) == 0:
+            return None
+        x, y, w, h = max(faces, key=lambda r: int(r[2]) * int(r[3]))
+        return int(x), int(y), int(w), int(h), img.shape[1], img.shape[0]
+    except Exception as e:
+        print(f"[Mask] face detect skipped: {e}")
+        return None
+
+
 def refine_foreground_mask(mask, image=None, use_grabcut=True, dilate_iters=2):
     """掩码精修：GrabCut 收紧 -> 最大连通域 -> 填洞 -> 轻微膨胀。
 
@@ -875,6 +893,28 @@ def refine_foreground_mask(mask, image=None, use_grabcut=True, dilate_iters=2):
         if num > 1:
             sizes = ndi.sum(binary, labels, range(1, num + 1))
             binary = labels == (int(np.argmax(sizes)) + 1)
+        binary = ndi.binary_fill_holes(binary)
+
+        # 3) 前景占比过高时，用扩展人脸椭圆硬性约束人像范围
+        if image is not None and float(binary.mean()) > 0.6:
+            fb = _detect_face_bbox(image)
+            if fb is not None:
+                fx, fy, fw, fh, W, H = fb
+                if binary.shape != (H, W):
+                    b_pil = Image.fromarray((binary * 255).astype(np.uint8))
+                    b_pil = b_pil.resize((W, H), Image.BICUBIC)
+                    binary = np.array(b_pil) > 127
+                cx = fx + fw / 2.0
+                cy = fy + fh / 2.0
+                rx = max(fw * 1.8, W * 0.32)
+                ry = max(fh * 2.8, H * 0.48)
+                yy, xx = np.mgrid[0:H, 0:W]
+                ellipse = (((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2) <= 1.0
+                cand = binary & ellipse
+                if cand.mean() > 0.02:
+                    binary = cand
+                    print(f"[Mask] face-box constraint applied: ratio={binary.mean():.3f}")
+
         binary = ndi.binary_fill_holes(binary)
         binary = ndi.binary_dilation(binary, iterations=dilate_iters)
         print(f"[Mask] refined: foreground ratio={binary.mean():.3f}")
