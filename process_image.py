@@ -1256,10 +1256,10 @@ def main():
                         help='笔触越界惩罚系数（默认0关闭）。>0 时惩罚落在 mask 外的笔触，'
                              '推荐 5~20，可显著减少背景笔触')
     
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
     
-    # 手动从 sys.argv 检查 --force_smart_crop（避免 argparse 定义不同步）
-    force_smart = '--force_smart_crop' in sys.argv or '-force_smart_crop' in sys.argv
+    # 手动从 unknown 参数里找 --force_smart_crop
+    force_smart = '--force_smart_crop' in unknown
     
     # 检查图像是否存在
     if not os.path.exists(args.image_path):
