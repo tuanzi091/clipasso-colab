@@ -850,11 +850,12 @@ def refine_foreground_mask(mask, image=None, use_grabcut=False, dilate_iters=1):
 
     h, w = m.shape
 
-    # 1) 自适应阈值：从 0.5 起逐步提高，直到前景占比落入 [0.30, 0.50]
-    #    这样能自然剔除 U2Net 置信度不够的背景
+    # 1) 自适应阈值：从0.50起逐步提高，直到前景占比落入 [0.30, 0.50]
+    #    兜底：如果所有阈值都没进区间，取第一个让占比<=0.50的阈值
     from scipy import ndimage as ndi
     best_t = 0.5
-    for t in [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80]:
+    fallback_t = None  # 第一个让占比<=0.50的阈值
+    for t in [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95]:
         cand = m > t
         if cand.sum() == 0:
             continue
@@ -863,13 +864,20 @@ def refine_foreground_mask(mask, image=None, use_grabcut=False, dilate_iters=1):
             sizes = ndi.sum(cand, labels, range(1, num + 1))
             cand = labels == (int(np.argmax(sizes)) + 1)
         ratio = float(cand.mean())
+        # 记录第一个让占比<=0.50的阈值（兜底）
+        if ratio <= 0.50 and fallback_t is None:
+            fallback_t = t
         if 0.30 <= ratio <= 0.50:
             best_t = t
             break
         if ratio < 0.30 and t > 0.50:
-            # 已经过小了，回退到上一档
+            # 已经过小了，用兜底或上一档
+            best_t = fallback_t if fallback_t is not None else t - 0.05
             break
         best_t = t  # 记录最后一个有效的
+    else:
+        # 循环正常结束（没触发break）：用兜底或最后一个阈值
+        best_t = fallback_t if fallback_t is not None else best_t
 
     binary = m > best_t
     if binary.sum() == 0:
@@ -910,9 +918,8 @@ def refine_foreground_mask(mask, image=None, use_grabcut=False, dilate_iters=1):
     return binary.astype(np.float32), True
 
 
-def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_interval=50, use_gpu=False, crop_square=False, dynamic_strokes=True, dynamic_curve=True, curve_type=None, drawing_style=None, face_focus=0.0, image_scale=None, stroke_width=None, mask_penalty=0.0):
-    """
-    按固定流程处理图像（默认启用动态自动选择）
+def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_interval=50, use_gpu=False, crop_square=False, dynamic_strokes=True, dynamic_curve=True, curve_type=None, drawing_style=None, face_focus=0.0, image_scale=None, stroke_width=None, mask_penalty=0.0, force_smart_crop=False):
+    """按固定流程处理图像（默认启用动态自动选择）
     
     参数：
         image_path: 输入图像路径
@@ -926,6 +933,7 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
         crop_square: 是否裁剪为正方形（保持原始分辨率）
         dynamic_strokes: 是否使用动态笔触数量（默认True，基于图像复杂度）
         dynamic_curve: 是否使用动态曲线类型（默认True，基于图像复杂度）
+        force_smart_crop: 是否强制触发智能裁剪（不管图片尺寸，默认False）
     """
     # 获取图像基本信息
     image_name = os.path.splitext(os.path.basename(image_path))[0]
@@ -955,12 +963,12 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
     width, height = target.size
     print(f"[Image Info] Original Size: {width}x{height}")
     
-    # 智能裁剪处理（对小尺寸图像）
+    # 智能裁剪处理（对小尺寸图像 或 强制触发）
     smart_crop_enabled = True  # 默认启用智能裁剪
     target_scale = int(image_scale) if image_scale else 224
     
-    if width < target_scale or height < target_scale:
-        print(f"\n[Step 2] Smart Crop - 小尺寸图像检测")
+    if force_smart_crop or width < target_scale or height < target_scale:
+        print(f"\n[Step 2] Smart Crop - {'强制触发' if force_smart_crop else '小尺寸图像检测'} (尺寸: {width}x{height}, 目标: {target_scale})")
         # 创建临时文件用于智能裁剪处理
         temp_original_path = os.path.join(output_dir, "original_before_smart_crop.png")
         target.save(temp_original_path)
@@ -1271,7 +1279,8 @@ def main():
         face_focus=args.face_focus,
         image_scale=args.image_scale,
         stroke_width=args.stroke_width,
-        mask_penalty=args.mask_penalty
+        mask_penalty=args.mask_penalty,
+        force_smart_crop=args.force_smart_crop
     )
     
     sys.exit(0 if success else 1)
