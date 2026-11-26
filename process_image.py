@@ -252,9 +252,9 @@ def select_drawing_style(complexity):
         'pencil': {
             'name': '铅笔 (Pencil)',
             'description': '柔和细腻的铅笔线条，灰色调，适合素描和草图',
-            'stroke_width_range': (1.0, 3.0),
+            'stroke_width_range': (0.8, 2.0),
             'stroke_width_var': 0.3,
-            'opacity_range': (0.4, 0.7),
+            'opacity_range': (0.6, 0.85),
             'color_type': 'grayscale',
             'noise_level': 0.15,
             'texture': 'soft',
@@ -276,9 +276,9 @@ def select_drawing_style(complexity):
         'brush': {
             'name': '毛笔 (Brush)',
             'description': '笔触变化丰富的毛笔效果，墨水浓淡，适合中国画和书法',
-            'stroke_width_range': (2.0, 8.0),
+            'stroke_width_range': (1.0, 2.5),
             'stroke_width_var': 0.6,
-            'opacity_range': (0.3, 0.9),
+            'opacity_range': (0.6, 0.95),
             'color_type': 'ink',
             'noise_level': 0.25,
             'texture': 'flowing',
@@ -288,9 +288,9 @@ def select_drawing_style(complexity):
         'marker': {
             'name': '马克笔 (Marker)',
             'description': '色彩鲜明的马克笔效果，笔触粗犷，适合快速表达',
-            'stroke_width_range': (3.0, 6.0),
+            'stroke_width_range': (1.5, 2.5),
             'stroke_width_var': 0.2,
-            'opacity_range': (0.6, 0.9),
+            'opacity_range': (0.7, 0.95),
             'color_type': 'vibrant',
             'noise_level': 0.08,
             'texture': 'bold',
@@ -300,9 +300,9 @@ def select_drawing_style(complexity):
         'watercolor': {
             'name': '水彩 (Watercolor)',
             'description': '透明柔和的水彩效果，色彩叠加，适合艺术创作',
-            'stroke_width_range': (2.0, 5.0),
+            'stroke_width_range': (1.0, 2.0),
             'stroke_width_var': 0.4,
-            'opacity_range': (0.2, 0.5),
+            'opacity_range': (0.6, 0.8),
             'color_type': 'soft_color',
             'noise_level': 0.3,
             'texture': 'blended',
@@ -312,7 +312,7 @@ def select_drawing_style(complexity):
         'woodcut': {
             'name': '木刻 (Woodcut)',
             'description': '强烈对比的木刻效果，黑白高对比，适合版画风格',
-            'stroke_width_range': (2.0, 6.0),
+            'stroke_width_range': (1.5, 2.5),
             'stroke_width_var': 0.5,
             'opacity_range': (0.9, 1.0),
             'color_type': 'monochrome',
@@ -324,9 +324,9 @@ def select_drawing_style(complexity):
         'crayon': {
             'name': '蜡笔 (Crayon)',
             'description': '粗粝质感的蜡笔效果，色彩浓厚，适合儿童画和手绘',
-            'stroke_width_range': (3.0, 7.0),
+            'stroke_width_range': (1.5, 2.5),
             'stroke_width_var': 0.45,
-            'opacity_range': (0.5, 0.8),
+            'opacity_range': (0.6, 0.9),
             'color_type': 'rich',
             'noise_level': 0.35,
             'texture': 'rough',
@@ -336,9 +336,9 @@ def select_drawing_style(complexity):
         'charcoal': {
             'name': '炭笔 (Charcoal)',
             'description': '柔和渐变的炭笔效果，黑白艺术，适合肖像和风景',
-            'stroke_width_range': (2.0, 6.0),
+            'stroke_width_range': (1.0, 2.5),
             'stroke_width_var': 0.5,
-            'opacity_range': (0.3, 0.8),
+            'opacity_range': (0.6, 0.85),
             'color_type': 'monochrome',
             'noise_level': 0.4,
             'texture': 'soft_blend',
@@ -383,9 +383,9 @@ def get_drawing_style_params(style):
         'pencil': {
             'name': '铅笔 (Pencil)',
             'description': '柔和细腻的铅笔线条，灰色调，适合素描和草图',
-            'stroke_width_range': (1.0, 3.0),
+            'stroke_width_range': (0.8, 2.0),
             'stroke_width_var': 0.3,
-            'opacity_range': (0.4, 0.7),
+            'opacity_range': (0.6, 0.85),
             'color_type': 'grayscale',
             'noise_level': 0.15,
             'texture': 'soft',
@@ -407,9 +407,9 @@ def get_drawing_style_params(style):
         'brush': {
             'name': '毛笔 (Brush)',
             'description': '笔触变化丰富的毛笔效果，墨水浓淡，适合中国画和书法',
-            'stroke_width_range': (2.0, 8.0),
+            'stroke_width_range': (1.0, 2.5),
             'stroke_width_var': 0.6,
-            'opacity_range': (0.3, 0.9),
+            'opacity_range': (0.6, 0.95),
             'color_type': 'ink',
             'noise_level': 0.25,
             'texture': 'flowing',
@@ -419,9 +419,9 @@ def get_drawing_style_params(style):
         'marker': {
             'name': '马克笔 (Marker)',
             'description': '色彩鲜明的马克笔效果，笔触粗犷，适合快速表达',
-            'stroke_width_range': (3.0, 6.0),
+            'stroke_width_range': (1.5, 2.5),
             'stroke_width_var': 0.2,
-            'opacity_range': (0.6, 0.9),
+            'opacity_range': (0.7, 0.95),
             'color_type': 'vibrant',
             'noise_level': 0.08,
             'texture': 'bold',
@@ -431,9 +431,9 @@ def get_drawing_style_params(style):
         'watercolor': {
             'name': '水彩 (Watercolor)',
             'description': '透明柔和的水彩效果，色彩叠加，适合艺术创作',
-            'stroke_width_range': (2.0, 5.0),
+            'stroke_width_range': (1.0, 2.0),
             'stroke_width_var': 0.4,
-            'opacity_range': (0.2, 0.5),
+            'opacity_range': (0.6, 0.8),
             'color_type': 'soft_color',
             'noise_level': 0.3,
             'texture': 'blended',
@@ -443,7 +443,7 @@ def get_drawing_style_params(style):
         'woodcut': {
             'name': '木刻 (Woodcut)',
             'description': '强烈对比的木刻效果，黑白高对比，适合版画风格',
-            'stroke_width_range': (2.0, 6.0),
+            'stroke_width_range': (1.5, 2.5),
             'stroke_width_var': 0.5,
             'opacity_range': (0.9, 1.0),
             'color_type': 'monochrome',
@@ -455,9 +455,9 @@ def get_drawing_style_params(style):
         'crayon': {
             'name': '蜡笔 (Crayon)',
             'description': '粗粝质感的蜡笔效果，色彩浓厚，适合儿童画和手绘',
-            'stroke_width_range': (3.0, 7.0),
+            'stroke_width_range': (1.5, 2.5),
             'stroke_width_var': 0.45,
-            'opacity_range': (0.5, 0.8),
+            'opacity_range': (0.6, 0.9),
             'color_type': 'rich',
             'noise_level': 0.35,
             'texture': 'rough',
@@ -467,9 +467,9 @@ def get_drawing_style_params(style):
         'charcoal': {
             'name': '炭笔 (Charcoal)',
             'description': '柔和渐变的炭笔效果，黑白艺术，适合肖像和风景',
-            'stroke_width_range': (2.0, 6.0),
+            'stroke_width_range': (1.0, 2.5),
             'stroke_width_var': 0.5,
-            'opacity_range': (0.3, 0.8),
+            'opacity_range': (0.6, 0.85),
             'color_type': 'monochrome',
             'noise_level': 0.4,
             'texture': 'soft_blend',
@@ -927,7 +927,7 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
         
         # 动态计算笔触数量
         if dynamic_strokes:
-            num_paths = calculate_dynamic_strokes(complexity, min_strokes=16, max_strokes=num_paths)
+            num_paths = calculate_dynamic_strokes(complexity, min_strokes=20, max_strokes=num_paths)
             print(f"[Dynamic Strokes] Using {num_paths} strokes based on image complexity")
         
         # 曲线类型选择：优先使用手动指定，其次动态选择
