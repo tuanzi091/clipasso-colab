@@ -810,6 +810,37 @@ def extract_foreground(image_path, output_dir):
     return masked_im, mask
 
 
+def refine_foreground_mask(mask, dilate_iters=2):
+    """掩码后处理：二值化 -> 只保留最大连通域 -> 填洞 -> 轻微膨胀。
+
+    针对暗背景、低对比人像，U2Net 常出现零碎区域或边缘发虚，
+    后处理后前景更完整，笔触更集中。
+    """
+    try:
+        from scipy import ndimage as ndi
+    except Exception:
+        return mask, False
+
+    m = np.array(mask, dtype=np.float32)
+    if m.ndim == 3:
+        m = m.squeeze()
+    if m.max() > 1.0:
+        m = m / 255.0
+
+    binary = m > 0.5
+    if binary.sum() == 0:
+        return mask, False
+
+    labels, num = ndi.label(binary)
+    if num > 1:
+        sizes = ndi.sum(binary, labels, range(1, num + 1))
+        binary = labels == (int(np.argmax(sizes)) + 1)
+
+    binary = ndi.binary_fill_holes(binary)
+    binary = ndi.binary_dilation(binary, iterations=dilate_iters)
+    return binary.astype(np.float32), True
+
+
 def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_interval=50, use_gpu=False, crop_square=False, dynamic_strokes=True, dynamic_curve=True, curve_type=None, drawing_style=None, face_focus=0.0, image_scale=None, stroke_width=None):
     """
     按固定流程处理图像（默认启用动态自动选择）
@@ -911,6 +942,21 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
     # 提取前景
     print("\n[Step 4] Extracting foreground with u2net_enhanced_best.pth...")
     masked_im, mask = extract_foreground(image_path, output_dir)
+
+    # 掩码后处理：去掉零碎区域、填补空洞、轻微膨胀，让笔触更聚焦前景
+    refined_mask, mask_ok = refine_foreground_mask(mask)
+    if mask_ok:
+        rgb = np.array(target.convert("RGB")).astype(np.float32)
+        m_np = refined_mask
+        if m_np.shape[:2] != rgb.shape[:2]:
+            m_pil = Image.fromarray((m_np * 255).astype(np.uint8))
+            m_pil = m_pil.resize((rgb.shape[1], rgb.shape[0]), Image.BICUBIC)
+            m_np = np.array(m_pil).astype(np.float32) / 255.0
+        alpha = m_np[..., None]
+        comp = rgb * alpha + 255.0 * (1.0 - alpha)
+        masked_im = Image.fromarray(comp.clip(0, 255).astype(np.uint8))
+        mask = refined_mask
+        print("[Step 4] Mask refined: largest component + fill holes + dilate")
     
     # 保存前景图
     foreground_path = os.path.join(output_dir, "foreground.png")
