@@ -884,23 +884,57 @@ def refine_foreground_mask(mask, image=None, use_grabcut=True, dilate_iters=2):
             binary = labels == (int(np.argmax(sizes)) + 1)
         binary = ndi.binary_fill_holes(binary)
 
-        # 3) 前景占比过高时，用扩展人脸椭圆硬性约束人像范围
-        if image is not None and float(binary.mean()) > 0.6:
+        # 3) 前景占比过高时，用 mask 几何约束收紧范围
+        if float(binary.mean()) > 0.55:
+            H, W = binary.shape
+            ys = binary.mean(axis=1)          # 每行的前景占比
+            y_cumsum = ys.cumsum()
+            y_total = y_cumsum[-1]
+            if y_total > 0:
+                # 前景密度重心（人像头通常在重心附近）
+                y_center = float(np.searchsorted(y_cumsum, y_total * 0.5))
+                # 只保留 重心偏下（头+肩）的纵向区间：[y_center*0.4, y_center+肩扩展]
+                y_top = max(0, int(y_center * 0.5))
+                y_bottom = min(H, int(y_center + max(H * 0.28, (H - y_center) * 0.55)))
+                yy, xx = np.mgrid[0:H, 0:W]
+                # 同时做 x 方向的左右收缩（去掉两侧大片空白）
+                x_sums = binary.sum(axis=0)
+                if x_sums.sum() > 0:
+                    nz = np.where(x_sums > x_sums.sum() * 0.01 / W * 2)[0]
+                    if len(nz) > 0:
+                        x_top = max(0, int(nz[0] - W * 0.03))
+                        x_bot = min(W, int(nz[-1] + W * 0.03))
+                    else:
+                        x_top, x_bot = 0, W
+                else:
+                    x_top, x_bot = 0, W
+                geo_box = ((yy >= y_top) & (yy < y_bottom) & (xx >= x_top) & (xx < x_bot))
+                cand = binary & geo_box
+                # 兜底：如果收缩后占比反而降到 <0.05，说明重心歪了，放弃这次约束
+                if 0.05 < cand.mean() < 0.75:
+                    binary = cand
+                    print(f"[Mask] geometric constraint applied: ratio={binary.mean():.3f} "
+                          f"(y_box=[{y_top},{y_bottom}], x_box=[{x_top},{x_bot}])")
+                else:
+                    print(f"[Mask] geometric constraint skipped (ratio={cand.mean():.3f})")
+
+        # 4) 最后再补一次 Haar 人脸框（作为加强），若检不到则忽略
+        if image is not None:
             fb = _detect_face_bbox(image)
             if fb is not None:
-                fx, fy, fw, fh, W, H = fb
-                if binary.shape != (H, W):
+                fx, fy, fw, fh, iW, iH = fb
+                if binary.shape != (iH, iW):
                     b_pil = Image.fromarray((binary * 255).astype(np.uint8))
-                    b_pil = b_pil.resize((W, H), Image.BICUBIC)
+                    b_pil = b_pil.resize((iW, iH), Image.BICUBIC)
                     binary = np.array(b_pil) > 127
                 cx = fx + fw / 2.0
                 cy = fy + fh / 2.0
-                rx = max(fw * 1.8, W * 0.32)
-                ry = max(fh * 2.8, H * 0.48)
-                yy, xx = np.mgrid[0:H, 0:W]
+                rx = min(iW * 0.42, fw * 2.2)
+                ry = min(iH * 0.55, fh * 3.2)
+                yy, xx = np.mgrid[0:iH, 0:iW]
                 ellipse = (((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2) <= 1.0
                 cand = binary & ellipse
-                if cand.mean() > 0.02:
+                if 0.05 < cand.mean() < 0.75:
                     binary = cand
                     print(f"[Mask] face-box constraint applied: ratio={binary.mean():.3f}")
 
