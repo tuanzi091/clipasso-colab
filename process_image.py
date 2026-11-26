@@ -810,7 +810,7 @@ def extract_foreground(image_path, output_dir):
     return masked_im, mask
 
 
-def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_interval=50, use_gpu=False, crop_square=False, dynamic_strokes=True, dynamic_curve=True, curve_type=None, drawing_style=None, face_focus=0.0):
+def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_interval=50, use_gpu=False, crop_square=False, dynamic_strokes=True, dynamic_curve=True, curve_type=None, drawing_style=None, face_focus=0.0, image_scale=None, stroke_width=None):
     """
     按固定流程处理图像（默认启用动态自动选择）
     
@@ -857,7 +857,7 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
     
     # 智能裁剪处理（对小尺寸图像）
     smart_crop_enabled = True  # 默认启用智能裁剪
-    target_scale = 224
+    target_scale = int(image_scale) if image_scale else 224
     
     if width < target_scale or height < target_scale:
         print(f"\n[Step 2] Smart Crop - 小尺寸图像检测")
@@ -1013,13 +1013,19 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
     # 面部加权：提高五官区域的笔触占比
     if face_focus and face_focus > 0:
         cmd.extend(['--face_emphasis', str(face_focus)])
+    # 固定线宽（用于更细致的刻画）
+    if stroke_width and stroke_width > 0:
+        cmd.extend(['--width', str(stroke_width)])
     # 绘画风格落地：逐笔触采样线宽与透明度
     if style_params is not None:
-        width_range = style_params['stroke_width_range']
         opacity_range = style_params['opacity_range']
+        if not (stroke_width and stroke_width > 0):
+            width_range = style_params['stroke_width_range']
+            cmd.extend([
+                '--stroke_width_min', str(width_range[0]),
+                '--stroke_width_max', str(width_range[1]),
+            ])
         cmd.extend([
-            '--stroke_width_min', str(width_range[0]),
-            '--stroke_width_max', str(width_range[1]),
             '--opacity_min', str(opacity_range[0]),
             '--opacity_max', str(opacity_range[1]),
         ])
@@ -1114,6 +1120,10 @@ def main():
     parser.add_argument('--face_focus', type=float, default=0.0,
                         help='面部加权强度（默认0=关闭）。>0 时提高五官区域的笔触初始化权重，'
                              '减少头发/背景的笔触，人像推荐 1.0~2.0')
+    parser.add_argument('--image_scale', type=int, default=None,
+                        help='画布/输入尺寸（默认224）。提到 320/384 可获得更细致的刻画，速度按平方变慢')
+    parser.add_argument('--stroke_width', type=float, default=None,
+                        help='固定线宽（默认走风格自适应）。小于1.0 可画出更细的线条')
     
     args = parser.parse_args()
     
@@ -1135,7 +1145,9 @@ def main():
         dynamic_curve=not args.no_dynamic_curve,
         curve_type=args.curve_type,
         drawing_style=args.style,
-        face_focus=args.face_focus
+        face_focus=args.face_focus,
+        image_scale=args.image_scale,
+        stroke_width=args.stroke_width
     )
     
     sys.exit(0 if success else 1)
