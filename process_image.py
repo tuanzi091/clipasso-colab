@@ -810,35 +810,78 @@ def extract_foreground(image_path, output_dir):
     return masked_im, mask
 
 
-def refine_foreground_mask(mask, dilate_iters=2):
-    """掩码后处理：二值化 -> 只保留最大连通域 -> 填洞 -> 轻微膨胀。
+def _mask_to_2d(mask):
+    """把 mask 统一转成 2D float32（0~1），兼容 torch 张量 / 多通道 / 0-255。"""
+    if hasattr(mask, "detach"):
+        mask = mask.detach().cpu().numpy()
+    m = np.asarray(mask)
+    if m.ndim == 4:
+        m = m[0, 0]
+    elif m.ndim == 3:
+        m = m[0] if m.shape[0] == 1 else m.mean(axis=-1)
+    m = m.astype(np.float32)
+    if m.max() > 1.5:
+        m = m / 255.0
+    return m
 
-    针对暗背景、低对比人像，U2Net 常出现零碎区域或边缘发虚，
-    后处理后前景更完整，笔触更集中。
+
+def refine_foreground_mask(mask, image=None, use_grabcut=True, dilate_iters=2):
+    """掩码精修：GrabCut 收紧 -> 最大连通域 -> 填洞 -> 轻微膨胀。
+
+    针对暗背景、低对比人像：U2Net 常把大范围背景判为前景（前景占比过高），
+    这里用图像颜色做一次 GrabCut，再用形态学保证前景连续、无碎点。
     """
     try:
+        m = _mask_to_2d(mask)
+    except Exception as e:
+        print(f"[Mask] normalize failed: {e}")
+        return mask, False
+
+    if m.size == 0:
+        return mask, False
+
+    h, w = m.shape
+
+    # 1) GrabCut 二次分割（以 U2Net 结果为初始标记）
+    if image is not None and use_grabcut:
+        try:
+            import cv2
+            img = np.array(image.convert("RGB")) if hasattr(image, "convert") else np.asarray(image)
+            if img.shape[:2] != (h, w):
+                m_pil = Image.fromarray((m * 255).astype(np.uint8))
+                m_pil = m_pil.resize((img.shape[1], img.shape[0]), Image.BICUBIC)
+                m = np.array(m_pil).astype(np.float32) / 255.0
+                h, w = m.shape
+            bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            gc = np.full((h, w), cv2.GC_PR_BGD, np.uint8)
+            gc[m > 0.85] = cv2.GC_FGD
+            gc[m < 0.15] = cv2.GC_BGD
+            bgd = np.zeros((1, 65), np.float64)
+            fgd = np.zeros((1, 65), np.float64)
+            cv2.grabCut(bgr, gc, None, bgd, fgd, 3, cv2.GC_INIT_WITH_MASK)
+            out = np.where((gc == cv2.GC_FGD) | (gc == cv2.GC_PR_FGD), 1.0, 0.0).astype(np.float32)
+            if out.mean() > 0.01:
+                m = out
+        except Exception as e:
+            print(f"[Mask] grabcut skipped: {e}")
+
+    # 2) 最大连通域 + 填洞 + 膨胀
+    try:
         from scipy import ndimage as ndi
-    except Exception:
+        binary = m > 0.5
+        if binary.sum() == 0:
+            return mask, False
+        labels, num = ndi.label(binary)
+        if num > 1:
+            sizes = ndi.sum(binary, labels, range(1, num + 1))
+            binary = labels == (int(np.argmax(sizes)) + 1)
+        binary = ndi.binary_fill_holes(binary)
+        binary = ndi.binary_dilation(binary, iterations=dilate_iters)
+        print(f"[Mask] refined: foreground ratio={binary.mean():.3f}")
+        return binary.astype(np.float32), True
+    except Exception as e:
+        print(f"[Mask] refine skipped: {e}")
         return mask, False
-
-    m = np.array(mask, dtype=np.float32)
-    if m.ndim == 3:
-        m = m.squeeze()
-    if m.max() > 1.0:
-        m = m / 255.0
-
-    binary = m > 0.5
-    if binary.sum() == 0:
-        return mask, False
-
-    labels, num = ndi.label(binary)
-    if num > 1:
-        sizes = ndi.sum(binary, labels, range(1, num + 1))
-        binary = labels == (int(np.argmax(sizes)) + 1)
-
-    binary = ndi.binary_fill_holes(binary)
-    binary = ndi.binary_dilation(binary, iterations=dilate_iters)
-    return binary.astype(np.float32), True
 
 
 def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_interval=50, use_gpu=False, crop_square=False, dynamic_strokes=True, dynamic_curve=True, curve_type=None, drawing_style=None, face_focus=0.0, image_scale=None, stroke_width=None, mask_penalty=0.0):
@@ -943,8 +986,8 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
     print("\n[Step 4] Extracting foreground with u2net_enhanced_best.pth...")
     masked_im, mask = extract_foreground(image_path, output_dir)
 
-    # 掩码后处理：去掉零碎区域、填补空洞、轻微膨胀，让笔触更聚焦前景
-    refined_mask, mask_ok = refine_foreground_mask(mask)
+    # 掩码后处理：GrabCut 收紧 + 去碎点 + 填洞 + 轻微膨胀，让笔触更聚焦前景
+    refined_mask, mask_ok = refine_foreground_mask(mask, image=target)
     if mask_ok:
         rgb = np.array(target.convert("RGB")).astype(np.float32)
         m_np = refined_mask
@@ -1027,6 +1070,8 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
             mask_np = mask_np.squeeze()
         if mask_np.ndim == 3 and mask_np.shape[0] == 1:
             mask_np = mask_np[0]
+        if mask_np.ndim == 3:
+            mask_np = mask_np.mean(axis=-1)
         # 确保mask在0-255范围内
         if mask_np.max() <= 1.0:
             mask_np = (mask_np * 255).astype(np.uint8)
