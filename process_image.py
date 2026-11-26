@@ -832,11 +832,12 @@ def _detect_face_bbox(image):
         return None
 
 
-def refine_foreground_mask(mask, image=None, use_grabcut=True, dilate_iters=2):
-    """掩码精修：GrabCut 收紧 -> 最大连通域 -> 填洞 -> 轻微膨胀。
+def refine_foreground_mask(mask, image=None, use_grabcut=False, dilate_iters=1):
+    """掩码精修：自适应阈值 + 最大连通域 + 填洞 + 轻微膨胀。
 
-    针对暗背景、低对比人像：U2Net 常把大范围背景判为前景（前景占比过高），
-    这里用图像颜色做一次 GrabCut，再用形态学保证前景连续、无碎点。
+    针对暗背景人像：U2Net soft mask 在真正的人像素元上置信度高（>0.85），
+    伪前景背景像素在 0.5~0.8 之间。这里不做 GrabCut（对暗色背景颜色模型失效），
+    而是动态调高阈值，把前景占比收紧到 0.30~0.50 的合理区间。
     """
     try:
         m = _mask_to_2d(mask)
@@ -849,102 +850,64 @@ def refine_foreground_mask(mask, image=None, use_grabcut=True, dilate_iters=2):
 
     h, w = m.shape
 
-    # 1) GrabCut 二次分割（以 U2Net 结果为初始标记）
-    if image is not None and use_grabcut:
-        try:
-            import cv2
-            img = np.array(image.convert("RGB")) if hasattr(image, "convert") else np.asarray(image)
-            if img.shape[:2] != (h, w):
-                m_pil = Image.fromarray((m * 255).astype(np.uint8))
-                m_pil = m_pil.resize((img.shape[1], img.shape[0]), Image.BICUBIC)
-                m = np.array(m_pil).astype(np.float32) / 255.0
-                h, w = m.shape
-            bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            gc = np.full((h, w), cv2.GC_PR_BGD, np.uint8)
-            gc[m > 0.85] = cv2.GC_FGD
-            gc[m < 0.15] = cv2.GC_BGD
-            bgd = np.zeros((1, 65), np.float64)
-            fgd = np.zeros((1, 65), np.float64)
-            cv2.grabCut(bgr, gc, None, bgd, fgd, 3, cv2.GC_INIT_WITH_MASK)
-            out = np.where((gc == cv2.GC_FGD) | (gc == cv2.GC_PR_FGD), 1.0, 0.0).astype(np.float32)
-            if out.mean() > 0.01:
-                m = out
-        except Exception as e:
-            print(f"[Mask] grabcut skipped: {e}")
-
-    # 2) 最大连通域 + 填洞 + 膨胀
-    try:
-        from scipy import ndimage as ndi
-        binary = m > 0.5
-        if binary.sum() == 0:
-            return mask, False
-        labels, num = ndi.label(binary)
+    # 1) 自适应阈值：从 0.5 起逐步提高，直到前景占比落入 [0.30, 0.50]
+    #    这样能自然剔除 U2Net 置信度不够的背景
+    from scipy import ndimage as ndi
+    best_t = 0.5
+    for t in [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80]:
+        cand = m > t
+        if cand.sum() == 0:
+            continue
+        labels, num = ndi.label(cand)
         if num > 1:
-            sizes = ndi.sum(binary, labels, range(1, num + 1))
-            binary = labels == (int(np.argmax(sizes)) + 1)
-        binary = ndi.binary_fill_holes(binary)
+            sizes = ndi.sum(cand, labels, range(1, num + 1))
+            cand = labels == (int(np.argmax(sizes)) + 1)
+        ratio = float(cand.mean())
+        if 0.30 <= ratio <= 0.50:
+            best_t = t
+            break
+        if ratio < 0.30 and t > 0.50:
+            # 已经过小了，回退到上一档
+            break
+        best_t = t  # 记录最后一个有效的
 
-        # 3) 前景占比过高时，用 mask 几何约束收紧范围
-        if float(binary.mean()) > 0.55:
-            H, W = binary.shape
-            ys = binary.mean(axis=1)          # 每行的前景占比
-            y_cumsum = ys.cumsum()
-            y_total = y_cumsum[-1]
-            if y_total > 0:
-                # 前景密度重心（人像头通常在重心附近）
-                y_center = float(np.searchsorted(y_cumsum, y_total * 0.5))
-                # 只保留 重心偏下（头+肩）的纵向区间：[y_center*0.4, y_center+肩扩展]
-                y_top = max(0, int(y_center * 0.5))
-                y_bottom = min(H, int(y_center + max(H * 0.28, (H - y_center) * 0.55)))
-                yy, xx = np.mgrid[0:H, 0:W]
-                # 同时做 x 方向的左右收缩（去掉两侧大片空白）
-                x_sums = binary.sum(axis=0)
-                if x_sums.sum() > 0:
-                    nz = np.where(x_sums > x_sums.sum() * 0.01 / W * 2)[0]
-                    if len(nz) > 0:
-                        x_top = max(0, int(nz[0] - W * 0.03))
-                        x_bot = min(W, int(nz[-1] + W * 0.03))
-                    else:
-                        x_top, x_bot = 0, W
-                else:
-                    x_top, x_bot = 0, W
-                geo_box = ((yy >= y_top) & (yy < y_bottom) & (xx >= x_top) & (xx < x_bot))
-                cand = binary & geo_box
-                # 兜底：如果收缩后占比反而降到 <0.05，说明重心歪了，放弃这次约束
-                if 0.05 < cand.mean() < 0.75:
-                    binary = cand
-                    print(f"[Mask] geometric constraint applied: ratio={binary.mean():.3f} "
-                          f"(y_box=[{y_top},{y_bottom}], x_box=[{x_top},{x_bot}])")
-                else:
-                    print(f"[Mask] geometric constraint skipped (ratio={cand.mean():.3f})")
-
-        # 4) 最后再补一次 Haar 人脸框（作为加强），若检不到则忽略
-        if image is not None:
-            fb = _detect_face_bbox(image)
-            if fb is not None:
-                fx, fy, fw, fh, iW, iH = fb
-                if binary.shape != (iH, iW):
-                    b_pil = Image.fromarray((binary * 255).astype(np.uint8))
-                    b_pil = b_pil.resize((iW, iH), Image.BICUBIC)
-                    binary = np.array(b_pil) > 127
-                cx = fx + fw / 2.0
-                cy = fy + fh / 2.0
-                rx = min(iW * 0.42, fw * 2.2)
-                ry = min(iH * 0.55, fh * 3.2)
-                yy, xx = np.mgrid[0:iH, 0:iW]
-                ellipse = (((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2) <= 1.0
-                cand = binary & ellipse
-                if 0.05 < cand.mean() < 0.75:
-                    binary = cand
-                    print(f"[Mask] face-box constraint applied: ratio={binary.mean():.3f}")
-
-        binary = ndi.binary_fill_holes(binary)
-        binary = ndi.binary_dilation(binary, iterations=dilate_iters)
-        print(f"[Mask] refined: foreground ratio={binary.mean():.3f}")
-        return binary.astype(np.float32), True
-    except Exception as e:
-        print(f"[Mask] refine skipped: {e}")
+    binary = m > best_t
+    if binary.sum() == 0:
         return mask, False
+
+    # 2) 最大连通域 + 填洞
+    labels, num = ndi.label(binary)
+    if num > 1:
+        sizes = ndi.sum(binary, labels, range(1, num + 1))
+        binary = labels == (int(np.argmax(sizes)) + 1)
+    binary = ndi.binary_fill_holes(binary)
+
+    print(f"[Mask] adaptive threshold={best_t:.2f}, "
+          f"ratio after threshold={binary.mean():.3f}")
+
+    # 3) 如果有 Haar 人脸框，把椭圆内的区域加回来（避免脸被 U2Net 保守阈值切掉）
+    if image is not None:
+        fb = _detect_face_bbox(image)
+        if fb is not None:
+            fx, fy, fw, fh, iW, iH = fb
+            if binary.shape != (iH, iW):
+                b_pil = Image.fromarray((binary * 255).astype(np.uint8))
+                b_pil = b_pil.resize((iW, iH), Image.BICUBIC)
+                binary = np.array(b_pil) > 127
+            cx = fx + fw / 2.0
+            cy = fy + fh / 2.0
+            rx = min(iW * 0.38, fw * 2.0)
+            ry = min(iH * 0.50, fh * 3.0)
+            yy, xx = np.mgrid[0:iH, 0:iW]
+            ellipse = (((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2) <= 1.0
+            binary = binary | ellipse
+            binary = ndi.binary_fill_holes(binary)
+            print(f"[Mask] face-box ellipse added back: ratio={binary.mean():.3f}")
+
+    # 4) 最后轻微膨胀（1 次，不要太多）
+    binary = ndi.binary_dilation(binary, iterations=dilate_iters)
+    print(f"[Mask] refined: foreground ratio={binary.mean():.3f}")
+    return binary.astype(np.float32), True
 
 
 def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_interval=50, use_gpu=False, crop_square=False, dynamic_strokes=True, dynamic_curve=True, curve_type=None, drawing_style=None, face_focus=0.0, image_scale=None, stroke_width=None, mask_penalty=0.0):
@@ -1062,7 +1025,7 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
         comp = rgb * alpha + 255.0 * (1.0 - alpha)
         masked_im = Image.fromarray(comp.clip(0, 255).astype(np.uint8))
         mask = refined_mask
-        print("[Step 4] Mask refined: largest component + fill holes + dilate")
+        print("[Step 4] Mask refined: adaptive threshold + largest component + fill holes + dilate")
     
     # 保存前景图
     foreground_path = os.path.join(output_dir, "foreground.png")
