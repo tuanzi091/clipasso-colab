@@ -198,29 +198,18 @@ def select_curve_type(complexity):
         # 极简单图像：使用直线
         curve_type = 'line'
         control_points_per_seg = 2
-    elif complexity < 0.3:
-        # 简单图像：使用圆弧曲线
-        curve_type = 'arc'
-        control_points_per_seg = 4
     elif complexity < 0.45:
-        # 中等复杂度：使用二次贝塞尔曲线
+        # 简单图像：使用二次贝塞尔曲线
         curve_type = 'quadratic_bezier'
         control_points_per_seg = 3
-    elif complexity < 0.6:
-        # 中高复杂度：使用三次贝塞尔曲线
+    elif complexity < 0.65:
+        # 中等复杂度：使用三次贝塞尔曲线
         curve_type = 'cubic_bezier'
         control_points_per_seg = 4
-    elif complexity < 0.75:
-        # 复杂图像：使用 B样条曲线
-        curve_type = 'bspline'
-        control_points_per_seg = 4
-    elif complexity < 0.9:
-        # 非常复杂：使用 Catmull-Rom 超顺滑曲线
-        curve_type = 'catmull_rom'
-        control_points_per_seg = 4
     else:
-        # 极复杂：使用可变宽手绘曲线
-        curve_type = 'variable_width'
+        # 复杂/非常复杂：继续三次贝塞尔（catmull-rom / bspline / arc 这类插值型曲线
+        # 与 mask_penalty 组合时会出现控制点拉扯导致线条混乱，暂不自动选择）
+        curve_type = 'cubic_bezier'
         control_points_per_seg = 4
     
     return curve_type, control_points_per_seg
