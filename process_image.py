@@ -1258,6 +1258,9 @@ def main():
     
     args = parser.parse_args()
     
+    # 手动从 sys.argv 检查 --force_smart_crop（避免 argparse 定义不同步）
+    force_smart = '--force_smart_crop' in sys.argv or '-force_smart_crop' in sys.argv
+    
     # 检查图像是否存在
     if not os.path.exists(args.image_path):
         print(f"Error: Image not found: {args.image_path}")
@@ -1280,7 +1283,7 @@ def main():
         image_scale=args.image_scale,
         stroke_width=args.stroke_width,
         mask_penalty=args.mask_penalty,
-        force_smart_crop=args.force_smart_crop
+        force_smart_crop=force_smart
     )
     
     sys.exit(0 if success else 1)
