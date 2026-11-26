@@ -967,6 +967,10 @@ def process_image(image_path, output_dir=None, num_paths=32, num_iter=500, save_
     smart_crop_enabled = True  # 默认启用智能裁剪
     target_scale = int(image_scale) if image_scale else 224
     
+    print(f"[DEBUG] process_image: force_smart_crop={force_smart_crop}, "
+          f"img_size={width}x{height}, target_scale={target_scale}, "
+          f"trigger={'YES' if (force_smart_crop or width < target_scale or height < target_scale) else 'NO'}")
+    
     if force_smart_crop or width < target_scale or height < target_scale:
         print(f"\n[Step 2] Smart Crop - {'强制触发' if force_smart_crop else '小尺寸图像检测'} (尺寸: {width}x{height}, 目标: {target_scale})")
         # 创建临时文件用于智能裁剪处理
@@ -1260,6 +1264,8 @@ def main():
     
     # 手动从 unknown 参数里找 --force_smart_crop
     force_smart = '--force_smart_crop' in unknown
+    print(f"[DEBUG] unknown_args={unknown}")
+    print(f"[DEBUG] force_smart_crop_detected={force_smart}")
     
     # 检查图像是否存在
     if not os.path.exists(args.image_path):
