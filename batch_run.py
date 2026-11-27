@@ -41,7 +41,8 @@ def collect_images(input_dir, only=None):
     return files
 
 
-def run_one_live(img_path, out_dir, num_paths, num_iter, use_gpu, idx, total):
+def run_one_live(img_path, out_dir, num_paths, num_iter, use_gpu, idx, total,
+                 mask_penalty=0.0, face_focus=0.0, force_smart_crop=False):
     """跑单张，边跑边打印关键信息和百分比进度。"""
     cmd = [
         sys.executable, "-u", "process_image.py",
@@ -51,7 +52,11 @@ def run_one_live(img_path, out_dir, num_paths, num_iter, use_gpu, idx, total):
         "--num_iter", str(num_iter),
         "--save_interval", "50",
         "--use_gpu", str(int(use_gpu)),
+        "--mask_penalty", str(mask_penalty),
+        "--face_focus", str(face_focus),
     ]
+    if force_smart_crop:
+        cmd.append("--force_smart_crop")
     env = os.environ.copy()
     env["PYTHONPATH"] = os.path.join(REPO_ROOT, "diffvg")
     env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -167,6 +172,10 @@ def main():
     ap.add_argument("--paths", type=int, default=24)
     ap.add_argument("--gpu", type=int, default=1)
     ap.add_argument("--only", default=None)
+    ap.add_argument("--limit", type=int, default=0, help="只跑前 N 张（0=全部）")
+    ap.add_argument("--mask_penalty", type=float, default=0.0)
+    ap.add_argument("--face_focus", type=float, default=0.0)
+    ap.add_argument("--force_smart_crop", action="store_true")
     ap.add_argument("--skip_done", type=int, default=1)
     ap.add_argument("--pack_only", action="store_true")
     args = ap.parse_args()
@@ -179,6 +188,11 @@ def main():
 
     images = collect_images(args.input_dir, args.only)
     assert images, f"在 {args.input_dir} 下没找到图片"
+    
+    # 限制只跑前 N 张
+    if args.limit > 0:
+        images = images[:args.limit]
+        print(f"[限制] 只跑前 {args.limit} 张")
 
     print(f"{'='*66}")
     print(f"共 {len(images)} 张图 | iter={args.iter} | paths={args.paths} | gpu={args.gpu}")
@@ -200,7 +214,9 @@ def main():
             continue
 
         os.makedirs(out_dir, exist_ok=True)
-        rc, elapsed = run_one_live(img, out_dir, args.paths, args.iter, args.gpu, i, len(images))
+        rc, elapsed = run_one_live(img, out_dir, args.paths, args.iter, args.gpu, i, len(images),
+                                   mask_penalty=args.mask_penalty, face_focus=args.face_focus,
+                                   force_smart_crop=args.force_smart_crop)
 
         if rc == 0:
             with open(marker, "w") as f:
