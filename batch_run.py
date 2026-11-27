@@ -173,6 +173,7 @@ def main():
     ap.add_argument("--gpu", type=int, default=1)
     ap.add_argument("--only", default=None)
     ap.add_argument("--limit", type=int, default=0, help="只跑前 N 张（0=全部）")
+    ap.add_argument("--offset", type=int, default=0, help="从第 N 张开始跑（0=从第一张）")
     ap.add_argument("--mask_penalty", type=float, default=0.0)
     ap.add_argument("--face_focus", type=float, default=0.0)
     ap.add_argument("--force_smart_crop", action="store_true")
@@ -189,10 +190,13 @@ def main():
     images = collect_images(args.input_dir, args.only)
     assert images, f"在 {args.input_dir} 下没找到图片"
     
-    # 限制只跑前 N 张
+    # 限制切片：offset 跳过前 N 张，limit 只跑后续 N 张
+    if args.offset > 0:
+        images = images[args.offset:]
+        print(f"[切片] 跳过前 {args.offset} 张")
     if args.limit > 0:
         images = images[:args.limit]
-        print(f"[限制] 只跑前 {args.limit} 张")
+        print(f"[切片] 只跑 {len(images)} 张")
 
     print(f"{'='*66}")
     print(f"共 {len(images)} 张图 | iter={args.iter} | paths={args.paths} | gpu={args.gpu}")
